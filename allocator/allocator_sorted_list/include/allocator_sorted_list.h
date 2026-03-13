@@ -14,44 +14,60 @@ class allocator_sorted_list final:
 {
 
 private:
-    
+    struct free_block {
+        std::size_t size;
+        free_block* next;
+    };
+
+    struct used_block {
+        std::size_t size;
+        void* parent;
+    };
+
+
     void *_trusted_memory;
+    void* _first_block; // first free block
+    std::size_t _size;
+    fit_mode _fit_mode;
+    std::mutex mtx;
 
-    static constexpr const size_t allocator_metadata_size = sizeof(std::pmr::memory_resource *) + sizeof(fit_mode) + sizeof(size_t) + sizeof(std::mutex) + sizeof(void*);
+    static constexpr std::size_t extra_memory_of_block = 8;
 
-    static constexpr const size_t block_metadata_size = sizeof(void*) + sizeof(size_t);
+    static constexpr const std::size_t allocator_metadata_size = sizeof(std::pmr::memory_resource *) + sizeof(fit_mode) + sizeof(std::size_t) + sizeof(std::mutex) + sizeof(void*);
+
+    static constexpr const std::size_t block_metadata_size = sizeof(void*) + sizeof(std::size_t);
 
 public:
 
     explicit allocator_sorted_list(
-            size_t space_size,
+            std::size_t space_size,
             std::pmr::memory_resource *parent_allocator = nullptr,
             allocator_with_fit_mode::fit_mode allocate_fit_mode = allocator_with_fit_mode::fit_mode::first_fit);
-    
+
     allocator_sorted_list(
         allocator_sorted_list const &other);
-    
+
     allocator_sorted_list &operator=(
         allocator_sorted_list const &other);
 
     allocator_sorted_list(
         allocator_sorted_list &&other) noexcept;
-    
+
     allocator_sorted_list &operator=(
         allocator_sorted_list &&other) noexcept;
 
     ~allocator_sorted_list() override;
 
 private:
-    
+
     [[nodiscard]] void *do_allocate_sm(
-        size_t size) override;
-    
+        std::size_t size) override;
+
     void do_deallocate_sm(
         void *at) override;
 
     bool do_is_equal(const std::pmr::memory_resource&) const noexcept override;
-    
+
     inline void set_fit_mode(
         allocator_with_fit_mode::fit_mode mode) override;
 
@@ -61,9 +77,10 @@ private:
 
     std::vector<allocator_test_utils::block_info> get_blocks_info_inner() const override;
 
+    // For inserting (Algorithm A)
     class sorted_free_iterator
     {
-        void* _free_ptr;
+        void* _free_ptr{};
 
     public:
 
@@ -77,12 +94,15 @@ private:
 
         bool operator!=(const sorted_free_iterator&) const noexcept;
 
+        // moving through real free data (not meta)
         sorted_free_iterator& operator++() & noexcept;
 
-        sorted_free_iterator operator++(int n);
+        sorted_free_iterator operator++(int);
 
-        size_t size() const noexcept;
+        // return real size of data
+        std::size_t size() const noexcept;
 
+        // return ptr to payload
         void* operator*() const noexcept;
 
         sorted_free_iterator();
@@ -90,6 +110,7 @@ private:
         sorted_free_iterator(void* trusted);
     };
 
+    // For cleaning (algorithm B)
     class sorted_iterator
     {
         void* _free_ptr;
@@ -112,7 +133,7 @@ private:
 
         sorted_iterator operator++(int n);
 
-        size_t size() const noexcept;
+        std::size_t size() const noexcept;
 
         void* operator*() const noexcept;
 

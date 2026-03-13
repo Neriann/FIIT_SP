@@ -1,7 +1,7 @@
 #ifndef MATH_PRACTICE_AND_OPERATING_SYSTEMS_ALLOCATOR_TEST_UTILS_H
 #define MATH_PRACTICE_AND_OPERATING_SYSTEMS_ALLOCATOR_TEST_UTILS_H
 
-#include <cstddef>
+// #include <cstddef>
 #include <vector>
 #include <string>
 
@@ -13,7 +13,7 @@ public:
     struct block_info final
     {
         
-        size_t block_size;
+        std::size_t block_size;
         
         bool is_block_occupied;
         
