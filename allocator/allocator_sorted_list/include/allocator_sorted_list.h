@@ -15,19 +15,19 @@ class allocator_sorted_list final:
 
 private:
     struct free_block {
-        std::size_t size;
-        free_block* next;
+        std::size_t size{};
+        free_block* next{};
     };
 
     struct used_block {
-        std::size_t size;
-        void* parent;
+        std::size_t size{};
+        void* parent{};
     };
 
 
-    void *_trusted_memory;
-    void* _first_block; // first free block
-    std::size_t _size;
+    void *_trusted_memory{};
+    void* _first_block{}; // first free block
+    std::size_t _size{};
     fit_mode _fit_mode;
     std::mutex mtx;
 
@@ -110,13 +110,16 @@ private:
         sorted_free_iterator(void* trusted);
     };
 
-    // For cleaning (algorithm B)
-    class sorted_iterator
+    // For clearing (algorithm B)
+    class sorted_iterator // used to move through all blocks
     {
-        void* _free_ptr;
-        void* _current_ptr;
-        void* _trusted_memory;
-
+        // used block will be between _prev_free and _curr_free
+        void* _prev_free{}; // left bound (prev free block)
+        void* _curr_free{}; // right bound (curr free_block)
+        void* _trusted_memory{}; /* An artificial free block is needed before the memory pool at the beginning,
+        because clearing pattern is: [free][used][free] and in the case when [used] block
+        is in the first position the left free block is not available */
+        bool _is_free{};
     public:
 
         using iterator_category = std::forward_iterator_tag;
@@ -141,7 +144,7 @@ private:
 
         sorted_iterator();
 
-        sorted_iterator(void* trusted);
+        sorted_iterator(void* trusted, void* first_free);
     };
 
     friend class sorted_iterator;
@@ -152,6 +155,37 @@ private:
 
     sorted_iterator begin() const noexcept;
     sorted_iterator end() const noexcept;
+
+    class find_error: public std::exception {
+    public:
+        find_error(const char* msg);
+
+        const char *what() const noexcept override;
+    private:
+        const char* _msg{};
+    };
+
+    struct candidate {
+        sorted_free_iterator block{};
+        sorted_free_iterator prev_block{};
+
+        bool is_valid() const noexcept;
+    };
+
+    // search to allocate
+    candidate find_block_to_allocate(std::size_t size) const;
+
+    candidate find_first_block_to_allocate(std::size_t size) const;
+
+    // pattern Strategy
+    template <typename Compare>
+    candidate find_block_to_allocate_impl(std::size_t size, Compare cmp) const;
+
+    candidate find_block_to_deallocate(void* at) const;
+
+    // template <typename T>
+    // requires std::same_as<T, used_block> || std::same_as<T, free_block>
+    // static T* get_header(void* arena);
 };
 
 #endif //MATH_PRACTICE_AND_OPERATING_SYSTEMS_ALLOCATOR_ALLOCATOR_SORTED_LIST_H
