@@ -6,6 +6,7 @@
 #include <allocator_with_fit_mode.h>
 #include <iterator>
 #include <mutex>
+#include <atomic>
 
 class allocator_sorted_list final:
     public smart_mem_resource,
@@ -24,16 +25,15 @@ private:
         void* parent{};
     };
 
+    struct memory_header;
 
-    void *_trusted_memory{};
-    void* _first_block{}; // first free block
-    std::size_t _size{};
-    fit_mode _fit_mode;
-    std::mutex mtx;
+    // it looks like ControlBlock in the shared_ptr
+    memory_header* _mem_header;
+    void* _trusted_memory; // for easier access (you don't have to store it.)
 
     static constexpr std::size_t extra_memory_of_block = 8;
 
-    static constexpr const std::size_t allocator_metadata_size = sizeof(std::pmr::memory_resource *) + sizeof(fit_mode) + sizeof(std::size_t) + sizeof(std::mutex) + sizeof(void*);
+    static constexpr const std::size_t allocator_metadata_size = sizeof(std::pmr::memory_resource *) + sizeof(fit_mode) + sizeof(std::size_t) + sizeof(std::mutex) + sizeof(void*) + sizeof(std::atomic<std::size_t>);
 
     static constexpr const std::size_t block_metadata_size = sizeof(void*) + sizeof(std::size_t);
 
@@ -70,6 +70,8 @@ private:
 
     inline void set_fit_mode(
         allocator_with_fit_mode::fit_mode mode) override;
+
+    void swap(allocator_sorted_list& other) noexcept;
 
     std::vector<allocator_test_utils::block_info> get_blocks_info() const noexcept override;
 
@@ -119,7 +121,8 @@ private:
         void* _trusted_memory{}; /* An artificial free block is needed before the memory pool at the beginning,
         because clearing pattern is: [free][used][free] and in the case when [used] block
         is in the first position the left free block is not available */
-        bool _is_free{};
+        std::size_t _size;
+        bool _is_free{true};
     public:
 
         using iterator_category = std::forward_iterator_tag;
@@ -144,7 +147,7 @@ private:
 
         sorted_iterator();
 
-        sorted_iterator(void* trusted, void* first_free);
+        sorted_iterator(void* trusted, std::size_t size, void* first_free);
     };
 
     friend class sorted_iterator;
@@ -183,9 +186,18 @@ private:
 
     candidate find_block_to_deallocate(void* at) const;
 
-    // template <typename T>
-    // requires std::same_as<T, used_block> || std::same_as<T, free_block>
-    // static T* get_header(void* arena);
+    // arena is free block workspace
+    template <typename T>
+    // requires (std::same_as<T, used_block> || std::same_as<T, free_block> || std::same_as<T, void>)
+    static T* to_pointer(auto* header);
+
+    template <typename T>
+    // requires (std::same_as<T, used_block> || std::same_as<T, free_block> || std::same_as<T, void>)
+    static T* get_header_from_arena(void* arena, std::size_t meta = block_metadata_size);
+
+    static void* get_arena_from_header(auto* header, std::size_t meta = block_metadata_size);
+
+    static void* block_end(void* arena, std::size_t size);
 };
 
 #endif //MATH_PRACTICE_AND_OPERATING_SYSTEMS_ALLOCATOR_ALLOCATOR_SORTED_LIST_H

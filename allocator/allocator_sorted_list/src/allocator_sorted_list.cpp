@@ -1,23 +1,51 @@
-#include <not_implemented.h>
 #include "../include/allocator_sorted_list.h"
+
+#include <iostream>
+
+struct allocator_sorted_list::memory_header {
+    std::atomic<std::size_t> _refcount;
+    std::pmr::memory_resource* _parent;
+    void* _first_block; // first free block
+    std::size_t _size;
+    fit_mode _fit_mode;
+    std::mutex _mutex;
+};
+
 
 allocator_sorted_list::~allocator_sorted_list()
 {
-    void* header = reinterpret_cast<std::byte*>(_trusted_memory) - allocator_metadata_size;
 
-    ::operator delete(header); // TODO maybe need to use parent allocator
+    if (_mem_header && --_mem_header->_refcount == 0) {
+        if (_mem_header->_parent) {
+            std::size_t total_size = _mem_header->_size + allocator_metadata_size;
+
+            _mem_header->_parent->deallocate(_mem_header, total_size);
+        } else {
+            ::operator delete(_mem_header);
+        }
+    }
 }
 
 allocator_sorted_list::allocator_sorted_list(
     allocator_sorted_list &&other) noexcept
 {
-    throw not_implemented("allocator_sorted_list::allocator_sorted_list(allocator_sorted_list &&) noexcept", "your code should be here...");
+    _mem_header = other._mem_header;
+    _trusted_memory = other._trusted_memory;
+
+    other._mem_header = nullptr;
+    other._trusted_memory = nullptr;
 }
 
 allocator_sorted_list &allocator_sorted_list::operator=(
     allocator_sorted_list &&other) noexcept
 {
-    throw not_implemented("allocator_sorted_list &allocator_sorted_list::operator=(allocator_sorted_list &&) noexcept", "your code should be here...");
+    if (this == &other) {
+        return *this;
+    }
+    // move and swap
+    allocator_sorted_list tmp = other;
+    swap(tmp);
+    return *this;
 }
 
 allocator_sorted_list::allocator_sorted_list(
@@ -25,16 +53,25 @@ allocator_sorted_list::allocator_sorted_list(
         std::pmr::memory_resource *parent_allocator,
         allocator_with_fit_mode::fit_mode allocate_fit_mode)
 {
-    // TODO need to check
-    std::lock_guard lock(mtx);
-    void* header = parent_allocator ? parent_allocator->allocate(space_size + allocator_metadata_size) : ::operator new(space_size + allocator_metadata_size);
-    _trusted_memory = reinterpret_cast<std::byte*>(header) + allocator_metadata_size;
+    auto* allocator_header = to_pointer<memory_header>(
+        parent_allocator ? parent_allocator->allocate(space_size + allocator_metadata_size)
+        : ::operator new(space_size + allocator_metadata_size));
 
-    _first_block = static_cast<std::byte*>(_trusted_memory) + block_metadata_size;
+    _mem_header = allocator_header;
+    _mem_header->_parent = parent_allocator;
+    _mem_header->_size = space_size;
+    _mem_header->_fit_mode = allocate_fit_mode;
+    _mem_header->_refcount = 1;
 
-    _fit_mode = allocate_fit_mode;
-    _size = space_size;
-    ;}
+    void* allocator_arena = get_arena_from_header(allocator_header, allocator_metadata_size);
+    auto* first_block_header = to_pointer<free_block>(allocator_arena);
+
+    first_block_header->size = space_size - block_metadata_size;
+    first_block_header->next = nullptr;
+
+    _mem_header->_first_block = get_arena_from_header(first_block_header);
+    _trusted_memory = allocator_arena;
+}
 
 allocator_sorted_list::candidate allocator_sorted_list::find_first_block_to_allocate(std::size_t size) const {
     std::size_t real_size = size + block_metadata_size;
@@ -79,7 +116,7 @@ allocator_sorted_list::candidate allocator_sorted_list::find_block_to_allocate_i
 }
 
 allocator_sorted_list::candidate allocator_sorted_list::find_block_to_allocate(std::size_t size) const {
-    switch (_fit_mode) {
+    switch (_mem_header->_fit_mode) {
         case fit_mode::first_fit:
             return find_first_block_to_allocate(size);
 
@@ -96,7 +133,7 @@ allocator_sorted_list::candidate allocator_sorted_list::find_block_to_allocate(s
 [[nodiscard]] void *allocator_sorted_list::do_allocate_sm(
     std::size_t size)
 {
-    std::lock_guard lock(mtx);
+    std::lock_guard lock(_mem_header->_mutex);
 
     void* occupied = nullptr;
 
@@ -110,54 +147,67 @@ allocator_sorted_list::candidate allocator_sorted_list::find_block_to_allocate(s
         // quantity used bytes without meta
         std::size_t difference = cur_block_size - real_size;
 
-        auto* header_of_free_part =
-            reinterpret_cast<free_block*>(
-                reinterpret_cast<std::byte*>(*block) - block_metadata_size);
-        // auto* free_header = static_cast<free_block*>(header_of_free_part);
+        auto* header_of_free_part = get_header_from_arena<free_block>(*block);
 
-        // TODO need to check
-        if (difference >= extra_memory_of_block) {
+        if (difference >= extra_memory_of_block /* + block_metadata_size*/) {
 
             header_of_free_part->size = difference;
 
-            auto* header_of_used_part =
-                reinterpret_cast<used_block*>(
-                        reinterpret_cast<std::byte*>(*block) + difference);
+            // it's used block header
+            void* free_block_end = block_end(*block, difference);
 
-            // auto* used_header = static_cast<used_block*>(header_of_used_part);
+            auto* header_of_used_part = to_pointer<used_block>(free_block_end);
+
             header_of_used_part->size = size;
             header_of_used_part->parent = this; // TODO maybe not this, but parent
 
             occupied =
-                reinterpret_cast<std::byte*>(header_of_used_part) + block_metadata_size;
+                    get_arena_from_header(header_of_used_part);
         } else {
+
             // change previous pointer to free block
             if (prev_block == free_end()) { // if the first block wanted to use
-                _first_block = header_of_free_part->next;
+                _mem_header->_first_block = header_of_free_part->next;
             } else {
-                auto* prev_header_of_free_part =
-                    reinterpret_cast<free_block*>(
-                        reinterpret_cast<std::byte*>(*prev_block) - block_metadata_size);
+                auto* prev_header_of_free_part = get_header_from_arena<free_block>(*prev_block);
 
                 prev_header_of_free_part->next = header_of_free_part->next;
             }
+            // TODO check this
+            auto* header_of_used_part = get_header_from_arena<used_block>(*block);
+
+            header_of_used_part->size = size + difference;
+            header_of_used_part->parent = this;
+
             occupied = *block;
         }
     } catch (...) {
         throw std::bad_alloc();
     }
+    std::cout << "allocate " << print_blocks() << std::endl;
     // returned occupied block
     return occupied;
 }
 
 allocator_sorted_list::allocator_sorted_list(const allocator_sorted_list &other)
-{
-    throw not_implemented("allocator_sorted_list::allocator_sorted_list(const allocator_sorted_list &other)", "your code should be here...");
+{   _mem_header = other._mem_header;
+
+    _trusted_memory = other._trusted_memory;
+
+    if (_mem_header) {
+        ++_mem_header->_refcount;
+    }
 }
 
 allocator_sorted_list &allocator_sorted_list::operator=(const allocator_sorted_list &other)
 {
-    throw not_implemented("allocator_sorted_list &allocator_sorted_list::operator=(const allocator_sorted_list &other)", "your code should be here...");
+    if (this == &other) {
+        return *this;
+    }
+    // copy and swap
+    allocator_sorted_list tmp = other;
+    swap(tmp);
+    return *this;
 }
 
 bool allocator_sorted_list::do_is_equal(const std::pmr::memory_resource &other) const noexcept
@@ -170,11 +220,14 @@ allocator_sorted_list::candidate allocator_sorted_list::find_block_to_deallocate
     // search to deallocate
     sorted_free_iterator prev{_trusted_memory};
     for (auto cur = free_begin(); cur != free_end(); ++cur) {
-        // <= because possible situation is: _pool_begin->[used][free]
+        // <= because possible situation is: _trusted_memory->[used][free]
         if (*prev <= at && at < *cur) {
             return {cur, prev};
         }
         prev = cur;
+    }
+    if (*prev <= at) {
+        return {free_end(), prev};
     }
     throw std::logic_error("Invalid pointer to deallocate");
 }
@@ -185,20 +238,72 @@ void allocator_sorted_list::do_deallocate_sm(
 {
     if (!at) return;
 
-    std::lock_guard lock(mtx);
+    std::lock_guard lock(_mem_header->_mutex);
 
-    auto [prev_free_block, curr_free_block] = find_block_to_deallocate(at);
-
-    // TODO realise get_header, maybe get_payload
-
+    // prev maybe not available
+    auto [curr_free_block, prev_free_block] = find_block_to_deallocate(at);
 
 
+    if (prev_free_block != free_end()) {
+        // situation is: [free][used][free]
+        void* prev_arena = *prev_free_block;
+        void* curr_arena = *curr_free_block;
+
+        auto* used_header = to_pointer<used_block>(block_end(prev_arena, prev_free_block.size()));
+        if (used_header->parent != this) return;
+
+        auto* used_arena = get_arena_from_header(used_header);
+
+        auto* curr_header = get_header_from_arena<free_block>(curr_arena);
+        auto* prev_header = get_header_from_arena<free_block>(prev_arena);
+
+        if (block_end(used_arena, used_header->size) == curr_header) {
+            used_header->size += curr_header->size;
+            prev_header->next = curr_header->next;
+        }
+        prev_header->size += used_header->size;
+    } else {
+        // situation is: _trusted_memory->[used][free] => [free][used][free] or [free]
+        void* curr_arena = *curr_free_block;
+
+        auto* used_header = to_pointer<used_block>(_trusted_memory);
+
+        if (used_header->parent != this) return;
+
+        auto* used_arena = get_arena_from_header(used_header);
+
+        auto* curr_header = get_header_from_arena<free_block>(curr_arena);
+
+        // a used block becomes a free block
+        auto* free_header = to_pointer<free_block>(used_header);
+
+        if (block_end(used_arena, used_header->size) == curr_header) {
+            // situation is: [used][free] => [   free   ]
+
+            free_header->size += curr_header->size;
+            free_header->next = curr_header->next;
+        } else {
+            // situation is: [   used   ][free] => [free][ used ][free]
+
+            free_header->next = curr_header;
+
+        }
+
+        _mem_header->_first_block = get_arena_from_header(free_header);
+    }
+    std::cout << "deallocate " << print_blocks() << std::endl;
 }
 
 inline void allocator_sorted_list::set_fit_mode(
     allocator_with_fit_mode::fit_mode mode)
 {
-    _fit_mode = mode;
+    std::lock_guard lock(_mem_header->_mutex);
+    _mem_header->_fit_mode = mode;
+}
+
+void allocator_sorted_list::swap(allocator_sorted_list& other) noexcept {
+    std::swap(_trusted_memory, other._trusted_memory);
+    std::swap(_mem_header, other._mem_header);
 }
 
 std::vector<allocator_test_utils::block_info> allocator_sorted_list::get_blocks_info() const noexcept
@@ -211,31 +316,30 @@ std::vector<allocator_test_utils::block_info> allocator_sorted_list::get_blocks_
 {
     std::vector<allocator_test_utils::block_info> blocks_info;
 
-    for (auto it = sorted_iterator(_trusted_memory, _first_block); it != end(); ++it) {
+    for (auto it = sorted_iterator(_trusted_memory, _mem_header->_size, _mem_header->_first_block); it != end(); ++it) {
         blocks_info.emplace_back(it.size(), it.occupied());
     }
-    // TODO maybe move
     return blocks_info;
 }
 
 allocator_sorted_list::sorted_free_iterator allocator_sorted_list::free_begin() const noexcept
 {
-    return {_first_block};
+    return {_mem_header->_first_block};
 }
 
 allocator_sorted_list::sorted_free_iterator allocator_sorted_list::free_end() const noexcept
 {
-    return {nullptr}; // can {};
+    return {}; // can {};
 }
 
 allocator_sorted_list::sorted_iterator allocator_sorted_list::begin() const noexcept
 {
-    return {_trusted_memory, _first_block};
+    return {_trusted_memory, _mem_header->_size, _mem_header->_first_block};
 }
 
 allocator_sorted_list::sorted_iterator allocator_sorted_list::end() const noexcept
 {
-    return {nullptr, nullptr};
+    return {}; // dummy block is free
 }
 
 
@@ -254,7 +358,7 @@ bool allocator_sorted_list::sorted_free_iterator::operator!=(
 allocator_sorted_list::sorted_free_iterator &allocator_sorted_list::sorted_free_iterator::operator++() & noexcept
 {
     if (_free_ptr) {
-        auto* header = reinterpret_cast<free_block*>(reinterpret_cast<std::byte*>(_free_ptr) - block_metadata_size);
+        auto* header = get_header_from_arena<free_block>(_free_ptr);
         _free_ptr = header->next;
     }
 
@@ -271,10 +375,10 @@ allocator_sorted_list::sorted_free_iterator allocator_sorted_list::sorted_free_i
 std::size_t allocator_sorted_list::sorted_free_iterator::size() const noexcept
 {
     if (_free_ptr) {
-        auto* header = reinterpret_cast<free_block*>(reinterpret_cast<std::byte*>(_free_ptr) - block_metadata_size);
+        auto* header = get_header_from_arena<free_block>(_free_ptr);
         return header->size;
     }
-    throw std::logic_error("Invalid iterator");
+    return {};
 }
 
 void *allocator_sorted_list::sorted_free_iterator::operator*() const noexcept
@@ -289,7 +393,11 @@ allocator_sorted_list::sorted_free_iterator::sorted_free_iterator(void *trusted)
 
 bool allocator_sorted_list::sorted_iterator::operator==(const allocator_sorted_list::sorted_iterator & other) const noexcept
 {
-    return _prev_free == other._prev_free &&
+    // for compare with end()
+    // if (_curr_free == nullptr && other._curr_free == nullptr) {
+    //     return true;
+    // }
+    return /*_prev_free == other._prev_free && */
         _curr_free == other._curr_free &&
             _is_free == other._is_free;
 }
@@ -327,18 +435,30 @@ std::size_t allocator_sorted_list::sorted_iterator::size() const noexcept
 {
     // situation is: _curr_free->[free]
     if (_is_free) {
-        auto* free_header = reinterpret_cast<free_block*>(reinterpret_cast<std::byte*>(_curr_free) - block_metadata_size);
+        auto* free_header = get_header_from_arena<free_block>(_curr_free);
         return free_header->size;
     }
-    // situation is: _pool_begin->[used][free]
+    // situation is: _trusted_memory->[used][free]
     if (!_prev_free) {
-        auto* used_header = reinterpret_cast<used_block*>(_trusted_memory);
+        auto* used_header = to_pointer<used_block>(_trusted_memory);
         return used_header->size;
     }
+    // auto* prev_free_header = get_header_from_arena<free_block>(_prev_free);
+    // auto* used_header = to_pointer<used_block>(block_end(_prev_free, prev_free_header->size));
+    // return used_header->size;
+
+    // situation is: _prev_free->[free][used][nullptr]<-_curr_free
+    if (!_curr_free) {
+        auto* prev_free_header = get_header_from_arena<free_block>(_prev_free);
+
+        auto* used_header = block_end(_prev_free, prev_free_header->size);
+        auto* used_arena = get_arena_from_header(used_header);
+
+        auto* pool_end = block_end(_trusted_memory, _size);
+        return std::distance(to_pointer<std::byte>(used_arena), to_pointer<std::byte>(pool_end));
+    }
     // situation is: _prev_free->[free][used][free]
-    auto* prev_free_header = reinterpret_cast<free_block*>(reinterpret_cast<std::byte*>(_prev_free) - block_metadata_size);
-    auto* used_header = reinterpret_cast<used_block*>(reinterpret_cast<std::byte*>(_prev_free) + prev_free_header->size);
-    return used_header->size;
+    return to_pointer<std::byte>(_curr_free) - to_pointer<std::byte>(_prev_free);
 }
 
 void *allocator_sorted_list::sorted_iterator::operator*() const noexcept
@@ -347,19 +467,19 @@ void *allocator_sorted_list::sorted_iterator::operator*() const noexcept
     if (_is_free) {
         return _curr_free;
     }
-    // situation is: _pool_begin->[used][free]
+    // situation is: _trusted_memory->[used][free]
     if (!_prev_free) {
-        return reinterpret_cast<std::byte*>(_trusted_memory) + block_metadata_size;
+        return get_arena_from_header(_trusted_memory);
     }
     // situation is: _prev_free->[free][used][free]
-    auto* prev_free_header = reinterpret_cast<free_block*>(reinterpret_cast<std::byte*>(_prev_free) - block_metadata_size);
-    return reinterpret_cast<std::byte*>(_prev_free) + prev_free_header->size + block_metadata_size;
+    auto* prev_free_header = get_header_from_arena<free_block>(_prev_free);
+    return get_arena_from_header(block_end(_prev_free, prev_free_header->size));
 
 }
 
 allocator_sorted_list::sorted_iterator::sorted_iterator() = default;
 
-allocator_sorted_list::sorted_iterator::sorted_iterator(void *trusted, void* first_free): _curr_free(first_free), _trusted_memory(trusted), _is_free(_trusted_memory == _curr_free) {}
+allocator_sorted_list::sorted_iterator::sorted_iterator(void *trusted, std::size_t size, void* first_free): _curr_free(first_free), _trusted_memory(trusted), _size(size), _is_free(get_arena_from_header(_trusted_memory) == _curr_free) {}
 
 bool allocator_sorted_list::sorted_iterator::occupied() const noexcept
 {
@@ -376,8 +496,23 @@ bool allocator_sorted_list::candidate::is_valid() const noexcept {
     return block != sorted_free_iterator();
 }
 
-// template <typename T>
-// requires std::same_as<T, allocator_sorted_list::used_block> || std::same_as<T, allocator_sorted_list::free_block>
-// T* allocator_sorted_list::get_header(void* arena) {
-//     return reinterpret_cast<T*>(reinterpret_cast<std::byte*>(arena) - block_metadata_size);
-// }
+template <typename T>
+// requires (std::same_as<T, allocator_sorted_list::used_block> || std::same_as<T, allocator_sorted_list::free_block>
+    // || std::same_as<T, void>)
+T* allocator_sorted_list::to_pointer(auto* header) {
+    return reinterpret_cast<T*>(header);
+}
+template <typename T>
+// requires (std::same_as<T, allocator_sorted_list::used_block> || std::same_as<T, allocator_sorted_list::free_block>
+    // || std::same_as<T, void>)
+T* allocator_sorted_list::get_header_from_arena(void* arena, std::size_t meta) {
+    return to_pointer<T>(reinterpret_cast<std::byte*>(arena) - meta);
+}
+
+void *allocator_sorted_list::get_arena_from_header(auto* header, std::size_t meta) {
+    return reinterpret_cast<std::byte*>(header) + meta;
+}
+
+void* allocator_sorted_list::block_end(void *arena, std::size_t size) {
+    return reinterpret_cast<std::byte*>(arena) + size;
+}
