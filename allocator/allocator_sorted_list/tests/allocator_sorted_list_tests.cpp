@@ -6,7 +6,7 @@
 TEST(allocatorSortedListPositiveTests, test1)
 {
     std::unique_ptr<smart_mem_resource> alloc(new allocator_sorted_list(3000, nullptr, allocator_with_fit_mode::fit_mode::first_fit));
-    
+
     auto first_block = reinterpret_cast<int *>(alloc->allocate(sizeof(int) * 250));
     
     auto second_block = reinterpret_cast<char *>(alloc->allocate(sizeof(int) * 250));
