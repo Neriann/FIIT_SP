@@ -6,7 +6,7 @@
 #include <allocator_with_fit_mode.h>
 #include <iterator>
 #include <mutex>
-#include <atomic>
+#include <optional>
 
 class allocator_sorted_list final :
         public smart_mem_resource,
@@ -36,10 +36,10 @@ public:
         allocator_with_fit_mode::fit_mode allocate_fit_mode = allocator_with_fit_mode::fit_mode::first_fit);
 
     allocator_sorted_list(
-        allocator_sorted_list const &other);
+        allocator_sorted_list const &other) = delete;
 
     allocator_sorted_list &operator=(
-        allocator_sorted_list const &other);
+        allocator_sorted_list const &other) = delete;
 
     allocator_sorted_list(
         allocator_sorted_list &&other) noexcept;
@@ -163,15 +163,15 @@ private:
     };
 
     // search to allocate
-    candidate find_block_to_allocate(std::size_t size) const;
+    std::optional<candidate> find_block_to_allocate(std::size_t size) const noexcept;
 
-    candidate find_first_block_to_allocate(std::size_t size) const;
+    std::optional<candidate> find_first_block_to_allocate(std::size_t size) const noexcept;
 
     // pattern Strategy
     template<typename Compare>
-    candidate find_block_to_allocate_impl(std::size_t size, Compare cmp) const;
+    std::optional<candidate> find_block_to_allocate_impl(std::size_t size, Compare cmp) const noexcept;
 
-    candidate find_block_to_deallocate(void *at) const;
+    candidate find_block_to_deallocate(void *at) const noexcept;
 
     // arena is free block workspace
     template<typename T>
