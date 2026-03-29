@@ -46,7 +46,7 @@ std::size_t allocator_sorted_list::extra_memory_of_block() noexcept {
 
 allocator_sorted_list::~allocator_sorted_list() {
     if (_mem_header) {
-        const auto total_size = _mem_header->_size + allocator_metadata_size();
+        std::size_t total_size = _mem_header->_size + allocator_metadata_size();
         auto *parent = _mem_header->_parent;
 
         // Constructed via placement-new
@@ -84,8 +84,8 @@ allocator_sorted_list::allocator_sorted_list(
     std::size_t space_size,
     std::pmr::memory_resource *parent_allocator,
     allocator_with_fit_mode::fit_mode allocate_fit_mode) {
-    const std::size_t full_pool_size = space_size + block_metadata_size();
-    const std::size_t total_size = full_pool_size + allocator_metadata_size();
+    std::size_t full_pool_size = space_size + block_metadata_size();
+    std::size_t total_size = full_pool_size + allocator_metadata_size();
 
     void *raw_header = parent_allocator
                            ? parent_allocator->allocate(total_size)
