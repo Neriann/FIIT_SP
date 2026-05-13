@@ -6,11 +6,8 @@
 #include <initializer_list>
 #include <iterator>
 #include <memory>
-#include <not_implemented.h>
 #include <pp_allocator.h>
-#include <print>
 #include <stack>
-#include <utility>
 
 template<typename TKey, typename TValue,
     comparator<TKey> Compare = std::less<TKey>, std::size_t t = 5>
@@ -168,9 +165,9 @@ public:
         friend class B_tree;
         // friend class btree_reverse_iterator;
 
-        auto operator*() const noexcept -> reference; // TODO check this
+        auto operator*() const noexcept -> reference;
 
-        auto operator->() const noexcept -> pointer; // TODO check this
+        auto operator->() const noexcept -> pointer;
 
         // template <typename U>
         // U& operator->*(U value_type::*p); TODO maybe implement in future
@@ -202,6 +199,8 @@ public:
         explicit btree_iterator_base(node_ptr_type root = nullptr,
                                      const stack_type &path = stack_type(),
                                      std::size_t index = 0) noexcept;
+
+        operator btree_iterator_base<true>() const noexcept requires (!IsConst);
     };
 
     using btree_iterator = btree_iterator_base<false>;
@@ -422,9 +421,9 @@ private:
     find_position_for_insertion(const TKey &key,
                                 btree_iterator::stack_type &path) -> std::pair<std::size_t, bool>;
 
-    auto find_position_for_erasion(const TKey &key,
+    auto find_position_for_erasure(const TKey &key,
                                    btree_iterator::stack_type &path,
-                                   std::size_t &index) noexcept -> std::size_t;
+                                   std::size_t &index) noexcept -> bool;
 
     void erase_key_at_node(btree_iterator::stack_type &path,
                            std::size_t &index) noexcept;
@@ -451,14 +450,14 @@ private:
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
     std::size_t t>
-B_tree<TKey, TValue, Compare, t>::btree_node::btree_node(tree_data_type data)
-    : _keys{data} {
+B_tree<TKey, TValue, Compare, t>::btree_node::btree_node(tree_data_type data) {
+    _keys.push_back(std::move(data));
 }
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
     std::size_t t>
 B_tree<TKey, TValue, Compare, t>::btree_node::btree_node(keys_container keys, children_container children)
-    : _keys(keys), _children(children) {
+    : _keys(std::move(keys)), _children(std::move(children)) {
 }
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
@@ -567,6 +566,8 @@ B_tree<TKey, TValue, Compare, t>::operator=(const B_tree &other) -> B_tree<TKey,
 
     if (allocator_traits::propagate_on_container_copy_assignment::value) {
         std::swap(_allocator, temp._allocator);
+    } else {
+        temp._allocator = _allocator; // if not propagate, keep old allocator
     }
     return *this;
 }
@@ -810,6 +811,13 @@ B_tree<TKey, TValue, Compare, t>::btree_iterator_base<
     : _root(root), _path(path), _index(index) {
 }
 
+template<typename TKey, typename TValue, comparator<TKey> Compare, std::size_t t>
+template<bool IsConst>
+B_tree<TKey, TValue, Compare, t>::btree_iterator_base<IsConst>::operator btree_iterator_base<true>() const noexcept
+    requires (!IsConst) {
+    return btree_iterator_base<true>(_root, _path, _index);
+}
+
 template<typename TKey, typename TValue, comparator<TKey> Compare,
     std::size_t t>
 template<typename Iterator>
@@ -837,7 +845,7 @@ B_tree<TKey, TValue, Compare,
     t>::btree_reverse_iterator_base<Iterator>::operator->() const noexcept -> typename B_tree<TKey, TValue, Compare,
     t>::template btree_reverse_iterator_base<Iterator>::pointer {
     Iterator temp = _base_iterator;
-    return --temp.operator->();
+    return (--temp).operator->();
 }
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
@@ -1170,7 +1178,7 @@ B_tree<TKey, TValue, Compare, t>::emplace(
         btree_node *new_node = node_allocator_traits::allocate(node_alloc, 1);
 
         try {
-            node_allocator_traits::construct(node_alloc, new_node, data);
+            node_allocator_traits::construct(node_alloc, new_node, std::move(data));
 
             path.emplace(new_node, 0);
 
@@ -1189,7 +1197,7 @@ B_tree<TKey, TValue, Compare, t>::emplace(
     if (is_exists) {
         return {btree_iterator{_root, path, index}, false};
     }
-    node->_keys.insert(node->_keys.begin() + index, data);
+    node->_keys.insert(node->_keys.begin() + index, std::move(data));
     ++_size;
     return {btree_iterator{_root, path, index}, true};
 }
@@ -1222,8 +1230,7 @@ B_tree<TKey, TValue, Compare, t>::emplace_or_assign(
     auto [it, is_complete] = emplace(data);
 
     if (!is_complete) {
-        // TODO check this
-        it->second = data.second;
+        it->second = std::move(data.second);
     }
     return it;
 }
@@ -1233,9 +1240,7 @@ template<typename TKey, typename TValue, comparator<TKey> Compare,
 auto
 B_tree<TKey, TValue, Compare,
     t>::erase(btree_iterator pos) -> typename B_tree<TKey, TValue, Compare, t>::btree_iterator {
-    erase_key_at_node(pos._path, pos._index);
-    --_size;
-    return pos;
+    return erase(pos); // implicit conversion to const_iterator
 }
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
@@ -1243,9 +1248,12 @@ template<typename TKey, typename TValue, comparator<TKey> Compare,
 auto
 B_tree<TKey, TValue, Compare, t>::erase(
     btree_const_iterator pos) -> typename B_tree<TKey, TValue, Compare, t>::btree_iterator {
-    erase_key_at_node(pos._path, pos._index);
+    typename btree_iterator::stack_type path = pos._path;
+    std::size_t index = pos._index;
+
+    erase_key_at_node(path, index);
     --_size;
-    return pos;
+    return btree_iterator(_root, path, index);
 }
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
@@ -1283,7 +1291,7 @@ B_tree<TKey, TValue, Compare, t>::erase(const TKey &key) -> typename B_tree<TKey
     typename btree_iterator::stack_type path;
     std::size_t index = 0;
 
-    bool found = find_position_for_erasion(key, path, index);
+    bool found = find_position_for_erasure(key, path, index);
 
     if (!found)
         return end();
@@ -1298,7 +1306,6 @@ B_tree<TKey, TValue, Compare, t>::erase(const TKey &key) -> typename B_tree<TKey
 
 // region helpers implementation
 
-// TODO maybe make them fields on nodes
 template<typename TKey, typename TValue, comparator<TKey> Compare,
     std::size_t t>
 auto B_tree<TKey, TValue, Compare, t>::is_leaf(const btree_node *node) noexcept
@@ -1332,7 +1339,7 @@ auto B_tree<TKey, TValue, Compare, t>::bound_search(this Self &&self, const TKey
 
     bool found = false;
     std::size_t answer_index = 0;
-    btree_node *node = self._root;
+    auto *node = self._root;
 
     // root has no parent, store 0 by convention
     path.emplace(node, 0);
@@ -1437,9 +1444,9 @@ auto B_tree<TKey, TValue, Compare, t>::find_position_for_insertion(
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
     std::size_t t>
-auto B_tree<TKey, TValue, Compare, t>::find_position_for_erasion(
+auto B_tree<TKey, TValue, Compare, t>::find_position_for_erasure(
     const TKey &key, typename btree_iterator::stack_type &path,
-    std::size_t &index) noexcept -> std::size_t {
+    std::size_t &index) noexcept -> bool {
     path.emplace(_root, 0);
 
     while (true) {
@@ -1510,7 +1517,7 @@ void B_tree<TKey, TValue, Compare, t>::erase_key_at_node(
         }
 
         std::size_t key_index = child->_keys.size() - 1;
-        node->_keys[index] = child->_keys[key_index];
+        node->_keys[index] = std::move(child->_keys[key_index]);
         index = key_index;
 
         erase_key_at_node(path, index);
@@ -1527,7 +1534,7 @@ void B_tree<TKey, TValue, Compare, t>::erase_key_at_node(
         }
 
         std::size_t key_index = 0;
-        node->_keys[index] = child->_keys[key_index];
+        node->_keys[index] = std::move(child->_keys[key_index]);
         index = key_index;
 
         erase_key_at_node(path, index);
@@ -1575,11 +1582,15 @@ void B_tree<TKey, TValue, Compare, t>::split(btree_node *child,
 
     std::size_t new_size = size / 2; // t - 1
 
-    tree_data_type data = child->_keys[new_size];
+    auto data = std::move(child->_keys[new_size]);
 
     // create new containers with elements after split
-    keys_container new_keys(child->_keys.begin() + new_size + 1, child->_keys.end());
+    keys_container new_keys;
     children_container new_children;
+
+    for (auto it = child->_keys.begin() + new_size + 1; it != child->_keys.end(); ++it) {
+        new_keys.push_back(std::move(*it));
+    }
 
     if (!is_leaf(child)) {
         new_children.insert(new_children.end(), child->_children.begin() + new_size + 1, child->_children.end());
@@ -1589,7 +1600,7 @@ void B_tree<TKey, TValue, Compare, t>::split(btree_node *child,
 
     btree_node *new_child = node_allocator_traits::allocate(node_alloc, 1);
     try {
-        node_allocator_traits::construct(node_alloc, new_child, new_keys, new_children);
+        node_allocator_traits::construct(node_alloc, new_child, std::move(new_keys), std::move(new_children));
     } catch (...) {
         node_allocator_traits::deallocate(node_alloc, new_child, 1);
         throw;
@@ -1597,13 +1608,13 @@ void B_tree<TKey, TValue, Compare, t>::split(btree_node *child,
 
     if (parent) {
         // guaranteed that parent size is valid for insertion
-        parent->_keys.insert(parent->_keys.begin() + child_index, data);
+        parent->_keys.insert(parent->_keys.begin() + child_index, std::move(data));
         parent->_children.insert(parent->_children.begin() + child_index + 1,
                                  new_child);
     } else {
         // create new root
         keys_container root_keys;
-        root_keys.push_back(data);
+        root_keys.push_back(std::move(data));
 
         children_container root_children;
         root_children.push_back(child);
@@ -1611,8 +1622,8 @@ void B_tree<TKey, TValue, Compare, t>::split(btree_node *child,
 
         btree_node *new_root = node_allocator_traits::allocate(node_alloc, 1);
         try {
-            node_allocator_traits::construct(node_alloc, new_root, root_keys,
-                                             root_children);
+            node_allocator_traits::construct(node_alloc, new_root, std::move(root_keys),
+                                             std::move(root_children));
         } catch (...) {
             node_allocator_traits::deallocate(node_alloc, new_root, 1);
 
@@ -1637,12 +1648,14 @@ void B_tree<TKey, TValue, Compare, t>::merge_left(btree_node *parent,
     btree_node *child = parent->_children[child_index];
     btree_node *left_child = parent->_children[child_index - 1];
 
-    tree_data_type parent_data = parent->_keys[child_index - 1];
+    tree_data_type parent_data = std::move(parent->_keys[child_index - 1]);
 
-    left_child->_keys.push_back(parent_data);
+    left_child->_keys.push_back(std::move(parent_data));
 
-    left_child->_keys.insert(left_child->_keys.end(), child->_keys.begin(),
-                             child->_keys.end());
+    for (auto &key: child->_keys) {
+        left_child->_keys.push_back(std::move(key));
+    }
+
     left_child->_children.insert(left_child->_children.end(),
                                  child->_children.begin(),
                                  child->_children.end());
@@ -1670,12 +1683,14 @@ void B_tree<TKey, TValue, Compare, t>::merge_right(btree_node *parent,
     btree_node *child = parent->_children[child_index];
     btree_node *right_child = parent->_children[child_index + 1];
 
-    tree_data_type parent_data = parent->_keys[child_index];
+    tree_data_type parent_data = std::move(parent->_keys[child_index]);
 
-    child->_keys.push_back(parent_data);
+    child->_keys.push_back(std::move(parent_data));
 
-    child->_keys.insert(child->_keys.end(), right_child->_keys.begin(),
-                        right_child->_keys.end());
+    for (auto &key: right_child->_keys) {
+        child->_keys.push_back(std::move(key));
+    }
+
     child->_children.insert(child->_children.end(),
                             right_child->_children.begin(),
                             right_child->_children.end());
@@ -1703,9 +1718,9 @@ void B_tree<TKey, TValue, Compare, t>::rotate_left(btree_node *parent,
     btree_node *child = parent->_children[child_index];
     btree_node *right_child = parent->_children[child_index + 1];
 
-    tree_data_type parent_data = parent->_keys[child_index];
+    tree_data_type parent_data = std::move(parent->_keys[child_index]);
 
-    tree_data_type data = right_child->_keys.front();
+    tree_data_type data = std::move(right_child->_keys.front());
     btree_node *subtree = nullptr;
 
     if (!is_leaf(right_child)) {
@@ -1715,11 +1730,11 @@ void B_tree<TKey, TValue, Compare, t>::rotate_left(btree_node *parent,
 
     right_child->_keys.erase(right_child->_keys.begin());
 
-    child->_keys.push_back(parent_data);
+    child->_keys.push_back(std::move(parent_data));
 
     if (subtree) child->_children.push_back(subtree);
 
-    parent->_keys[child_index] = data;
+    parent->_keys[child_index] = std::move(data);
 }
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
@@ -1729,9 +1744,9 @@ void B_tree<TKey, TValue, Compare, t>::rotate_right(btree_node *parent,
     btree_node *child = parent->_children[child_index];
     btree_node *left_child = parent->_children[child_index - 1];
 
-    tree_data_type parent_data = parent->_keys[child_index - 1];
+    tree_data_type parent_data = std::move(parent->_keys[child_index - 1]);
 
-    tree_data_type data = left_child->_keys.back();
+    tree_data_type data = std::move(left_child->_keys.back());
     btree_node *subtree = nullptr;
 
     if (!is_leaf(left_child)) {
@@ -1741,11 +1756,11 @@ void B_tree<TKey, TValue, Compare, t>::rotate_right(btree_node *parent,
 
     left_child->_keys.pop_back();
 
-    child->_keys.insert(child->_keys.begin(), parent_data);
+    child->_keys.insert(child->_keys.begin(), std::move(parent_data));
 
     if (subtree) child->_children.insert(child->_children.begin(), subtree);
 
-    parent->_keys[child_index - 1] = data;
+    parent->_keys[child_index - 1] = std::move(data);
 }
 
 template<typename TKey, typename TValue, comparator<TKey> Compare, std::size_t t>
