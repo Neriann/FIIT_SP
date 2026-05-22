@@ -68,8 +68,20 @@ bool infix_const_iterator_test(
         BP_tree<tkey, tvalue, comp, t> const &tree,
         std::vector<test_data<tkey, tvalue>> const &expected_result)
 {
+    std::cout << "Expected: " << std::endl;
+    for (auto const &item: expected_result)
+    {
+        std::cout << item.key << " " << item.value << " " << item.index << std::endl;
+    }
+    std::cout << "Actual: " << std::endl;
+    for (auto it = tree.cbegin(); it != tree.cend(); ++it)
+    {
+        std::cout << it->first << " " << it->second << " " << it.index() << std::endl;
+    }
+
     auto end_infix = tree.cend();
     auto it = tree.cbegin();
+
 
     for (auto const &item: expected_result)
     {
@@ -86,7 +98,7 @@ bool infix_const_iterator_test(
 return true;
 }
 
-TEST(bTreePositiveTests, test0)
+TEST(bPlusTreePositiveTests, test0)
 {
     std::vector<test_data<int, std::string>> expected_result =
             {
@@ -98,16 +110,16 @@ TEST(bTreePositiveTests, test0)
     EXPECT_TRUE(infix_const_iterator_test(tree, expected_result));
 }
 
-TEST(bTreePositiveTests, test1)
+TEST(bPlusTreePositiveTests, test1)
 {
     std::vector<test_data<int, std::string>> expected_result =
             {
                     test_data<int, std::string>(0, 1, "a"),
                     test_data<int, std::string>(1, 2, "b"),
-                    test_data<int, std::string>(2, 3, "d"),
-                    test_data<int, std::string>(0, 4, "e"),
-                    test_data<int, std::string>(1, 15, "c"),
-                    test_data<int, std::string>(2, 27, "f")
+                    test_data<int, std::string>(0, 3, "d"),
+                    test_data<int, std::string>(1, 4, "e"),
+                    test_data<int, std::string>(2, 15, "c"),
+                    test_data<int, std::string>(3, 27, "f")
             };
 
     BP_tree<int, std::string, std::less<int>, 3> tree(std::less<int>(), nullptr);
@@ -122,7 +134,7 @@ TEST(bTreePositiveTests, test1)
     EXPECT_TRUE(infix_const_iterator_test(tree, expected_result));
 }
 
-TEST(bTreePositiveTests, test2)
+TEST(bPlusTreePositiveTests, test2)
 {
     std::vector<test_data<int, std::string>> expected_result =
             {
@@ -130,14 +142,14 @@ TEST(bTreePositiveTests, test2)
                     test_data<int, std::string>(1, 2, "b"),
                     test_data<int, std::string>(2, 3, "d"),
                     test_data<int, std::string>(3, 4, "e"),
-                    test_data<int, std::string>(4, 15, "c"),
-                    test_data<int, std::string>(0, 24, "g"),
-                    test_data<int, std::string>(1, 45, "k"),
-                    test_data<int, std::string>(2, 100, "f"),
-                    test_data<int, std::string>(3, 101, "j"),
-                    test_data<int, std::string>(4, 193, "l"),
-                    test_data<int, std::string>(5, 456, "h"),
-                    test_data<int, std::string>(6, 534, "m")
+                    test_data<int, std::string>(0, 15, "c"),
+                    test_data<int, std::string>(1, 24, "g"),
+                    test_data<int, std::string>(2, 45, "k"),
+                    test_data<int, std::string>(3, 100, "f"),
+                    test_data<int, std::string>(4, 101, "j"),
+                    test_data<int, std::string>(5, 193, "l"),
+                    test_data<int, std::string>(6, 456, "h"),
+                    test_data<int, std::string>(7, 534, "m")
             };
 
     BP_tree<int, std::string, std::less<int>, 5> tree(std::less<int>(), nullptr);
@@ -158,7 +170,7 @@ TEST(bTreePositiveTests, test2)
     EXPECT_TRUE(infix_const_iterator_test(tree, expected_result));
 }
 
-TEST(bTreePositiveTests, test3)
+TEST(bPlusTreePositiveTests, test3)
 {
     std::vector<test_data<int, std::string>> expected_result =
             {
@@ -194,17 +206,17 @@ TEST(bTreePositiveTests, test3)
     EXPECT_TRUE(infix_const_iterator_test(tree, expected_result));
 }
 
-TEST(bTreePositiveTests, test4)
+TEST(bPlusTreePositiveTests, test4)
 {
     std::vector<test_data<int, std::string>> expected_result =
             {
                     test_data<int, std::string>(0, 1, "a"),
                     test_data<int, std::string>(1, 2, "b"),
-                    test_data<int, std::string>(2, 3, "d"),
-                    test_data<int, std::string>(0, 4, "e"),
-                    test_data<int, std::string>(1, 15, "c"),
-                    test_data<int, std::string>(2, 24, "g"),
-                    test_data<int, std::string>(3, 45, "k"),
+                    test_data<int, std::string>(0, 3, "d"),
+                    test_data<int, std::string>(1, 4, "e"),
+                    test_data<int, std::string>(0, 15, "c"),
+                    test_data<int, std::string>(1, 24, "g"),
+                    test_data<int, std::string>(2, 45, "k"),
                     test_data<int, std::string>(0, 100, "f"),
                     test_data<int, std::string>(1, 101, "j"),
                     test_data<int, std::string>(2, 193, "l"),
@@ -230,11 +242,13 @@ TEST(bTreePositiveTests, test4)
     EXPECT_TRUE(infix_const_iterator_test(tree, expected_result));
 }
 
-TEST(bTreePositiveTests, test5)
+TEST(bPlusTreePositiveTests, test5)
 {
     std::vector<test_data<int, std::string>> expected_result =
             {
-
+                            test_data<int, std::string>(0, 1, "a"),
+                            test_data<int, std::string>(0, 3, "d"),
+                            test_data<int, std::string>(0, 15, "c")
             };
 
     BP_tree<int, std::string, std::less<int>, 2> tree(std::less<int>(), nullptr);
@@ -254,18 +268,18 @@ TEST(bTreePositiveTests, test5)
     EXPECT_TRUE(infix_const_iterator_test(tree, expected_result));
 }
 
-TEST(bTreePositiveTests, test6)
+TEST(bPlusTreePositiveTests, test6)
 {
     std::vector<test_data<int, std::string>> expected_result =
             {
                     test_data<int, std::string>(0, 2, "b"),
                     test_data<int, std::string>(1, 3, "d"),
                     test_data<int, std::string>(2, 4, "e"),
-                    test_data<int, std::string>(0, 15, "c"),
-                    test_data<int, std::string>(1, 45, "k"),
-                    test_data<int, std::string>(2, 101, "j"),
-                    test_data<int, std::string>(3, 456, "h"),
-                    test_data<int, std::string>(4, 534, "m")
+                    test_data<int, std::string>(3, 15, "c"),
+                    test_data<int, std::string>(0, 45, "k"),
+                    test_data<int, std::string>(1, 101, "j"),
+                    test_data<int, std::string>(2, 456, "h"),
+                    test_data<int, std::string>(3, 534, "m")
             };
 
     BP_tree<int, std::string, std::less<int>, 4> tree(std::less<int>(), nullptr);
@@ -301,7 +315,7 @@ TEST(bTreePositiveTests, test6)
     EXPECT_TRUE(fourth_disposed == "g");
 }
 
-TEST(bTreePositiveTests, test7)
+TEST(bPlusTreePositiveTests, test7)
 {
     std::vector<std::string> expected_result =
             {
@@ -346,7 +360,7 @@ TEST(bTreePositiveTests, test7)
     EXPECT_TRUE(compare_obtain_results(expected_result, actual_result));
 }
 
-TEST(bTreePositiveTests, test8)
+TEST(bPlusTreePositiveTests, test8)
 {
     std::vector<std::string> expected_result =
             {
@@ -391,7 +405,7 @@ TEST(bTreePositiveTests, test8)
     EXPECT_TRUE(compare_obtain_results(expected_result, actual_result));
 }
 
-TEST(bTreePositiveTests, test9)
+TEST(bPlusTreePositiveTests, test9)
 {
     std::vector<BP_tree<int, std::string>::value_type> expected_result =
             {

@@ -8,7 +8,6 @@
 #include <memory>
 #include <not_implemented.h>
 #include <pp_allocator.h>
-#include <stack>
 #include <utility>
 #include <vector>
 #include <algorithm>
@@ -22,7 +21,7 @@
 
 template <typename tkey, typename tvalue,
           comparator<tkey> compare = std::less<tkey>, std::size_t t = 5>
-class BP_tree final : private compare {
+class BP_tree final {
 public:
     using tree_data_type = std::pair<tkey, tvalue>;
     using tree_data_type_const = std::pair<const tkey, tvalue>;
@@ -35,11 +34,11 @@ private:
     struct bptree_node_base;
 
     using leaf_data_container =
-        boost::container::static_vector<tree_data_type, maximum_keys_in_node + 1>;
+        boost::container::static_vector<tree_data_type, maximum_keys_in_node>;
     using internal_keys_container =
-        boost::container::static_vector<tkey, maximum_keys_in_node + 1>;
+        boost::container::static_vector<tkey, maximum_keys_in_node>;
     using child_container =
-        boost::container::static_vector<bptree_node_base *, maximum_keys_in_node + 2>;
+        boost::container::static_vector<bptree_node_base *, maximum_keys_in_node + 1>;
 
     // region comparators declaration
     inline bool compare_keys(const tkey& lhs, const tkey& rhs) const;
@@ -52,12 +51,18 @@ private:
         explicit bptree_node_base(bool is_terminate) noexcept
             : _is_terminate(is_terminate) {}
 
+        [[nodiscard]] virtual bool is_full() const noexcept = 0;
+
         virtual ~bptree_node_base() = default;
     };
 
     struct bptree_node_term final : public bptree_node_base {
         bptree_node_term* _next;
         leaf_data_container _data;
+
+        [[nodiscard]] bool is_full() const noexcept override {
+            return _data.size() == maximum_keys_in_node;
+        }
 
         bptree_node_term() noexcept
             : bptree_node_base(true), _next(nullptr) {}
@@ -67,10 +72,15 @@ private:
         internal_keys_container _keys;
         child_container _children;
 
+        [[nodiscard]] bool is_full() const noexcept override {
+            return _keys.size() == maximum_keys_in_node;
+        }
+
         bptree_node_middle() noexcept
             : bptree_node_base(false) {}
     };
 
+    [[no_unique_address]] compare _compare;
     pp_allocator<value_type> _allocator;
     bptree_node_base* _root{};
     std::size_t _size{};
@@ -86,50 +96,59 @@ private:
 
     auto get_allocator() const noexcept -> pp_allocator<value_type>;
 
-    static auto is_leaf(const bptree_node_base* node) noexcept -> bool {
-        return node && node->_is_terminate;
-    }
-
-    static auto as_leaf(bptree_node_base* node) noexcept -> bptree_node_term* {
-        return static_cast<bptree_node_term*>(node);
-    }
-
-    static auto as_leaf(const bptree_node_base* node) noexcept -> const bptree_node_term* {
-        return static_cast<const bptree_node_term*>(node);
-    }
-
-    static auto as_internal(bptree_node_base* node) noexcept -> bptree_node_middle* {
-        return static_cast<bptree_node_middle*>(node);
-    }
-
-    static auto as_internal(const bptree_node_base* node) noexcept -> const bptree_node_middle* {
-        return static_cast<const bptree_node_middle*>(node);
-    }
+    // static auto is_leaf(const bptree_node_base* node) noexcept -> bool {
+    //     return node && node->_is_terminate;
+    // }
+    //
+    // static auto as_leaf(bptree_node_base* node) noexcept -> bptree_node_term* {
+    //     return static_cast<bptree_node_term*>(node);
+    // }
+    //
+    // static auto as_leaf(const bptree_node_base* node) noexcept -> const bptree_node_term* {
+    //     return static_cast<const bptree_node_term*>(node);
+    // }
+    //
+    // static auto as_internal(bptree_node_base* node) noexcept -> bptree_node_middle* {
+    //     return static_cast<bptree_node_middle*>(node);
+    // }
+    //
+    // static auto as_internal(const bptree_node_base* node) noexcept -> const bptree_node_middle* {
+    //     return static_cast<const bptree_node_middle*>(node);
+    // }
 
     auto make_leaf() -> bptree_node_term*;
+
     auto make_internal() -> bptree_node_middle*;
-    template <typename Node, typename... Args>
-    auto make_node(Args&&... args) -> Node*;
+
+    // template <typename Node, typename... Args>
+    // auto make_node(Args&&... args) -> Node*;
+
     void destroy_node(bptree_node_base* node) noexcept;
+
     auto clone_node(const bptree_node_base* node) const -> bptree_node_base*;
 
     auto leaf_lower_bound_index(const bptree_node_term* node, const tkey& key) const -> std::size_t;
+
     auto leaf_upper_bound_index(const bptree_node_term* node, const tkey& key) const -> std::size_t;
+
     auto internal_child_index(const bptree_node_middle* node, const tkey& key) const -> std::size_t;
 
     void split_child(bptree_node_middle* parent, std::size_t child_index);
+
     void split_root_if_needed();
 
-    void insert_into_tree(tree_data_type data);
-    void insert_into_leaf_sorted(bptree_node_term* leaf, tree_data_type data);
+    // void insert_into_tree(tree_data_type data);
+    // void insert_into_leaf_sorted(bptree_node_term* leaf, tree_data_type data);
 
     auto find_leaf_for_key(const tkey& key) const -> bptree_node_term*;
+
     auto find_leaf_for_key_with_path(const tkey& key,
                                      std::vector<std::pair<bptree_node_middle*, std::size_t>>& path,
                                      std::size_t& leaf_index) const -> bptree_node_term*;
 
     auto find_first_leaf() const -> bptree_node_term*;
-    auto find_last_leaf() const -> bptree_node_term*;
+
+    // auto find_last_leaf() const -> bptree_node_term*;
 
     void rebalance_after_delete(std::vector<std::pair<bptree_node_middle*, std::size_t>>& path,
                                 bptree_node_term* leaf);
@@ -139,12 +158,12 @@ private:
     void update_separators_from_leaf_up(std::vector<std::pair<bptree_node_middle*, std::size_t>>& path,
                                         bptree_node_term* leaf);
 
-    auto erase_key_from_leaf(bptree_node_term* leaf, std::size_t index) -> bptree_node_term*;
+    // static auto erase_key_from_leaf(bptree_node_term* leaf, std::size_t index) -> bptree_node_term*;
 
 public:
     // region constructors declaration
     explicit BP_tree(const compare& cmp = compare(), pp_allocator<value_type> = pp_allocator<value_type>());
-    explicit BP_tree(pp_allocator<value_type> alloc, const compare& comp = compare());
+    explicit BP_tree(pp_allocator<value_type> alloc, const compare& cmp = compare());
 
     template<input_iterator_for_pair<tkey, tvalue> iterator>
     explicit BP_tree(iterator begin, iterator end, const compare& cmp = compare(), pp_allocator<value_type> = pp_allocator<value_type>());
@@ -189,11 +208,13 @@ public:
         friend class bptree_const_iterator;
 
         reference operator*() const noexcept {
+            if (!_node) throw std::out_of_range("Dereferencing end iterator");
             auto& kv = _node->_data[_index];
             _proxy.emplace(proxy{kv.first, kv.second});
             return *_proxy;
         }
         pointer operator->() const noexcept {
+            if (!_node) throw std::out_of_range("Dereferencing end iterator");
             auto& kv = _node->_data[_index];
             _proxy.emplace(proxy{kv.first, kv.second});
             return &_proxy.value();
@@ -330,7 +351,7 @@ auto BP_tree<tkey, tvalue, compare, t>::compare_pairs(const tree_data_type& lhs,
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 auto BP_tree<tkey, tvalue, compare, t>::compare_keys(const tkey& lhs, const tkey& rhs) const -> bool {
-    return static_cast<const compare&>(*this)(lhs, rhs);
+    return _compare(lhs, rhs);
 }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
@@ -364,19 +385,19 @@ auto BP_tree<tkey, tvalue, compare, t>::make_internal() -> bptree_node_middle* {
     }
 }
 
-template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-template <typename Node, typename... Args>
-auto BP_tree<tkey, tvalue, compare, t>::make_node(Args&&... args) -> Node* {
-    node_allocator node_alloc(_allocator);
-    auto* raw = node_allocator_traits::allocate(node_alloc, 1);
-    try {
-        node_allocator_traits::construct(node_alloc, raw, std::forward<Args>(args)...);
-        return static_cast<Node*>(raw);
-    } catch (...) {
-        node_allocator_traits::deallocate(node_alloc, raw, 1);
-        throw;
-    }
-}
+// template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
+// template <typename Node, typename... Args>
+// auto BP_tree<tkey, tvalue, compare, t>::make_node(Args&&... args) -> Node* {
+//     node_allocator node_alloc(_allocator);
+//     auto* raw = node_allocator_traits::allocate(node_alloc, 1);
+//     try {
+//         node_allocator_traits::construct(node_alloc, raw, std::forward<Args>(args)...);
+//         return static_cast<Node*>(raw);
+//     } catch (...) {
+//         node_allocator_traits::deallocate(node_alloc, raw, 1);
+//         throw;
+//     }
+// }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 void BP_tree<tkey, tvalue, compare, t>::destroy_node(bptree_node_base* node) noexcept {
@@ -430,7 +451,7 @@ auto BP_tree<tkey, tvalue, compare, t>::leaf_upper_bound_index(const bptree_node
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 auto BP_tree<tkey, tvalue, compare, t>::internal_child_index(const bptree_node_middle* node, const tkey& key) const -> std::size_t {
-    return static_cast<std::size_t>(std::lower_bound(
+    return static_cast<std::size_t>(std::upper_bound(
         node->_keys.begin(), node->_keys.end(), key,
         [this](const tkey& k, const tkey& v) { return compare_keys(k, v); }) - node->_keys.begin());
 }
@@ -445,15 +466,15 @@ auto BP_tree<tkey, tvalue, compare, t>::find_first_leaf() const -> bptree_node_t
     return static_cast<bptree_node_term*>(cur);
 }
 
-template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-auto BP_tree<tkey, tvalue, compare, t>::find_last_leaf() const -> bptree_node_term* {
-    if (!_root) return nullptr;
-    auto* cur = _root;
-    while (!cur->_is_terminate) {
-        cur = static_cast<bptree_node_middle*>(cur)->_children.back();
-    }
-    return static_cast<bptree_node_term*>(cur);
-}
+// template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
+// auto BP_tree<tkey, tvalue, compare, t>::find_last_leaf() const -> bptree_node_term* {
+//     if (!_root) return nullptr;
+//     auto* cur = _root;
+//     while (!cur->_is_terminate) {
+//         cur = static_cast<bptree_node_middle*>(cur)->_children.back();
+//     }
+//     return static_cast<bptree_node_term*>(cur);
+// }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 auto BP_tree<tkey, tvalue, compare, t>::find_leaf_for_key(const tkey& key) const -> bptree_node_term* {
@@ -533,7 +554,7 @@ void BP_tree<tkey, tvalue, compare, t>::split_root_if_needed() {
     if (!_root) return;
     if (_root->_is_terminate) {
         auto* leaf = static_cast<bptree_node_term*>(_root);
-        if (leaf->_data.size() <= maximum_keys_in_node) return;
+        if (leaf->_data.size() < maximum_keys_in_node) return;
         auto* new_root = make_internal();
         new_root->_children.push_back(_root);
         split_child(new_root, 0);
@@ -541,104 +562,104 @@ void BP_tree<tkey, tvalue, compare, t>::split_root_if_needed() {
         return;
     }
     auto* internal = static_cast<bptree_node_middle*>(_root);
-    if (internal->_keys.size() <= maximum_keys_in_node) return;
+    if (internal->_keys.size() < maximum_keys_in_node) return;
     auto* new_root = make_internal();
     new_root->_children.push_back(_root);
     split_child(new_root, 0);
     _root = new_root;
 }
 
-template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-void BP_tree<tkey, tvalue, compare, t>::insert_into_leaf_sorted(bptree_node_term* leaf, tree_data_type data) {
-    auto it = std::lower_bound(leaf->_data.begin(), leaf->_data.end(), data.first,
-                               [this](const tree_data_type& lhs, const tkey& rhs) { return compare_keys(lhs.first, rhs); });
-    leaf->_data.insert(it, std::move(data));
-}
+// template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
+// void BP_tree<tkey, tvalue, compare, t>::insert_into_leaf_sorted(bptree_node_term* leaf, tree_data_type data) {
+//     auto it = std::lower_bound(leaf->_data.begin(), leaf->_data.end(), data.first,
+//                                [this](const tree_data_type& lhs, const tkey& rhs) { return compare_keys(lhs.first, rhs); });
+//     leaf->_data.insert(it, std::move(data));
+// }
 
-template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-void BP_tree<tkey, tvalue, compare, t>::insert_into_tree(tree_data_type data) {
-    if (!_root) {
-        auto* leaf = make_leaf();
-        leaf->_data.push_back(std::move(data));
-        _root = leaf;
-        ++_size;
-        return;
-    }
-
-    split_root_if_needed();
-
-    bptree_node_base* cur = _root;
-    std::vector<std::pair<bptree_node_middle*, std::size_t>> path;
-
-    while (!cur->_is_terminate) {
-        auto* internal = static_cast<bptree_node_middle*>(cur);
-        std::size_t idx = internal_child_index(internal, data.first);
-        auto* child = internal->_children[idx];
-        if (child->_is_terminate) {
-            auto* leaf = static_cast<bptree_node_term*>(child);
-            if (leaf->_data.size() == maximum_keys_in_node) {
-                split_child(internal, idx);
-                // after split, choose side again
-                if (compare_keys(internal->_keys[idx], data.first)) {
-                    ++idx;
-                }
-            }
-        } else {
-            auto* next = static_cast<bptree_node_middle*>(child);
-            if (next->_keys.size() == maximum_keys_in_node) {
-                split_child(internal, idx);
-                if (compare_keys(internal->_keys[idx], data.first)) {
-                    ++idx;
-                }
-            }
-        }
-        cur = internal->_children[idx];
-        if (cur->_is_terminate) break;
-    }
-
-    auto* leaf = static_cast<bptree_node_term*>(cur);
-    auto it = std::lower_bound(leaf->_data.begin(), leaf->_data.end(), data.first,
-                               [this](const tree_data_type& lhs, const tkey& rhs) { return compare_keys(lhs.first, rhs); });
-    if (it != leaf->_data.end() && !compare_keys(data.first, it->first) && !compare_keys(it->first, data.first)) {
-        it->second = std::move(data.second);
-        return;
-    }
-    leaf->_data.insert(it, std::move(data));
-    ++_size;
-}
+// template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
+// void BP_tree<tkey, tvalue, compare, t>::insert_into_tree(tree_data_type data) {
+//     if (!_root) {
+//         auto* leaf = make_leaf();
+//         leaf->_data.push_back(std::move(data));
+//         _root = leaf;
+//         ++_size;
+//         return;
+//     }
+//
+//     split_root_if_needed();
+//
+//     bptree_node_base* cur = _root;
+//     std::vector<std::pair<bptree_node_middle*, std::size_t>> path;
+//
+//     while (!cur->_is_terminate) {
+//         auto* internal = static_cast<bptree_node_middle*>(cur);
+//         std::size_t idx = internal_child_index(internal, data.first);
+//         auto* child = internal->_children[idx];
+//         if (child->_is_terminate) {
+//             auto* leaf = static_cast<bptree_node_term*>(child);
+//             if (leaf->_data.size() == maximum_keys_in_node) {
+//                 split_child(internal, idx);
+//                 // after split, choose side again
+//                 if (compare_keys(internal->_keys[idx], data.first)) {
+//                     ++idx;
+//                 }
+//             }
+//         } else {
+//             auto* next = static_cast<bptree_node_middle*>(child);
+//             if (next->_keys.size() == maximum_keys_in_node) {
+//                 split_child(internal, idx);
+//                 if (compare_keys(internal->_keys[idx], data.first)) {
+//                     ++idx;
+//                 }
+//             }
+//         }
+//         cur = internal->_children[idx];
+//         if (cur->_is_terminate) break;
+//     }
+//
+//     auto* leaf = static_cast<bptree_node_term*>(cur);
+//     auto it = std::lower_bound(leaf->_data.begin(), leaf->_data.end(), data.first,
+//                                [this](const tree_data_type& lhs, const tkey& rhs) { return compare_keys(lhs.first, rhs); });
+//     if (it != leaf->_data.end() && !compare_keys(data.first, it->first) && !compare_keys(it->first, data.first)) {
+//         it->second = std::move(data.second);
+//         return;
+//     }
+//     leaf->_data.insert(it, std::move(data));
+//     ++_size;
+// }
 
 // public ctors / dtor / assignment
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 BP_tree<tkey, tvalue, compare, t>::BP_tree(const compare& cmp, pp_allocator<value_type> alloc)
-    : compare(cmp), _allocator(alloc), _root(nullptr), _size(0) {}
+    : _compare(cmp), _allocator(alloc) {}
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 BP_tree<tkey, tvalue, compare, t>::BP_tree(pp_allocator<value_type> alloc, const compare& cmp)
-    : compare(cmp), _allocator(alloc), _root(nullptr), _size(0) {}
+    : _compare(cmp), _allocator(alloc) {}
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 template<input_iterator_for_pair<tkey, tvalue> iterator>
 BP_tree<tkey, tvalue, compare, t>::BP_tree(iterator begin, iterator end, const compare& cmp, pp_allocator<value_type> alloc)
-    : compare(cmp), _allocator(alloc) {
+    : _compare(cmp), _allocator(alloc) {
     for (auto it = begin; it != end; ++it) insert(*it);
 }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 BP_tree<tkey, tvalue, compare, t>::BP_tree(std::initializer_list<std::pair<tkey, tvalue>> data, const compare& cmp, pp_allocator<value_type> alloc)
-    : compare(cmp), _allocator(alloc) {
+    : _compare(cmp), _allocator(alloc) {
     for (auto const& item : data) insert(item);
 }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 BP_tree<tkey, tvalue, compare, t>::BP_tree(const BP_tree& other)
-    : compare(other), _allocator(allocator_traits::select_on_container_copy_construction(other._allocator)), _size(other._size) {
+    : _compare(other), _allocator(allocator_traits::select_on_container_copy_construction(other._allocator)), _size(other._size) {
     _root = clone_node(other._root);
 }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 BP_tree<tkey, tvalue, compare, t>::BP_tree(BP_tree&& other) noexcept
-    : compare(std::move(other)), _allocator(std::move(other._allocator)), _root(std::exchange(other._root, nullptr)), _size(std::exchange(other._size, 0)) {}
+    : _compare(std::move(other)), _allocator(std::move(other._allocator)), _root(std::exchange(other._root, nullptr)), _size(std::exchange(other._size, 0)) {}
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 auto BP_tree<tkey, tvalue, compare, t>::operator=(const BP_tree& other) -> BP_tree& {
@@ -706,11 +727,12 @@ template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t
 auto BP_tree<tkey, tvalue, compare, t>::empty() const noexcept -> bool { return _size == 0; }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-auto BP_tree<tkey, tvalue, compare, t>::find(const tkey& key) -> bptree_iterator {
+auto BP_tree<tkey, tvalue, compare, t>::find(const tkey& key) -> bptree_iterator { // TODO de
     if (!_root) return end();
     auto* leaf = find_leaf_for_key(key);
     auto idx = leaf_lower_bound_index(leaf, key);
-    if (idx < leaf->_data.size() && !compare_keys(key, leaf->_data[idx].first) && !compare_keys(leaf->_data[idx].first, key)) {
+    std::size_t sz = leaf->_data.size();
+    if (idx < sz && !compare_keys(key, leaf->_data[idx].first) && !compare_keys(leaf->_data[idx].first, key)) {
         return bptree_iterator(leaf, idx);
     }
     return end();
@@ -748,7 +770,7 @@ auto BP_tree<tkey, tvalue, compare, t>::lower_bound(const tkey& key) const -> bp
 }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-auto BP_tree<tkey, tvalue, compare, t>::upper_bound(const tkey& key) -> bptree_iterator {
+auto BP_tree<tkey, tvalue, compare, t>::upper_bound(const tkey& key) -> bptree_iterator { // TODO deducing this
     if (!_root) return end();
     auto* leaf = find_leaf_for_key(key);
     auto idx = leaf_upper_bound_index(leaf, key);
@@ -791,7 +813,6 @@ template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t
 template <typename ...Args>
 auto BP_tree<tkey, tvalue, compare, t>::emplace(Args&&... args) -> std::pair<bptree_iterator, bool> {
     tree_data_type data(std::forward<Args>(args)...);
-    auto old_size = _size;
     if (!_root) {
         auto* leaf = make_leaf();
         leaf->_data.push_back(std::move(data));
@@ -800,37 +821,33 @@ auto BP_tree<tkey, tvalue, compare, t>::emplace(Args&&... args) -> std::pair<bpt
         return {bptree_iterator(leaf, 0), true};
     }
 
-    split_root_if_needed();
+    auto descend_to_leaf = [this](const tkey& key) -> bptree_node_term* {
+        split_root_if_needed();
 
-    bptree_node_base* cur = _root;
-    while (!cur->_is_terminate) {
-        auto* internal = static_cast<bptree_node_middle*>(cur);
-        std::size_t idx = internal_child_index(internal, data.first);
-        auto* child = internal->_children[idx];
-        if (child->_is_terminate) {
-            auto* leaf = static_cast<bptree_node_term*>(child);
-            if (leaf->_data.size() == maximum_keys_in_node) {
+        bptree_node_base* cur = _root;
+        while (!cur->_is_terminate) {
+            auto* internal = static_cast<bptree_node_middle*>(cur);
+            std::size_t idx = internal_child_index(internal, key);
+            auto* child = internal->_children[idx];
+
+            auto* leaf = static_cast<bptree_node_base*>(child);
+            if (leaf->is_full()) {
                 split_child(internal, idx);
-                if (compare_keys(internal->_keys[idx], data.first)) ++idx;
+                if (compare_keys(internal->_keys[idx], key)) ++idx;
             }
-        } else {
-            auto* mid = static_cast<bptree_node_middle*>(child);
-            if (mid->_keys.size() == maximum_keys_in_node) {
-                split_child(internal, idx);
-                if (compare_keys(internal->_keys[idx], data.first)) ++idx;
-            }
+            cur = internal->_children[idx];
         }
-        cur = internal->_children[idx];
-    }
+        return static_cast<bptree_node_term *>(cur);
+    };
 
-    auto* leaf = static_cast<bptree_node_term*>(cur);
+    auto* leaf = descend_to_leaf(data.first);
     auto it = std::lower_bound(leaf->_data.begin(), leaf->_data.end(), data.first,
                                [this](const tree_data_type& lhs, const tkey& rhs){ return compare_keys(lhs.first, rhs); });
     if (it != leaf->_data.end() && !compare_keys(data.first, it->first) && !compare_keys(it->first, data.first)) {
         it->second = std::move(data.second);
         return {bptree_iterator(leaf, static_cast<std::size_t>(it - leaf->_data.begin())), false};
     }
-    std::size_t idx = static_cast<std::size_t>(it - leaf->_data.begin());
+    auto idx = static_cast<std::size_t>(it - leaf->_data.begin());
     leaf->_data.insert(it, std::move(data));
     ++_size;
     return {bptree_iterator(leaf, idx), true};
@@ -863,7 +880,7 @@ auto BP_tree<tkey, tvalue, compare, t>::emplace_or_assign(Args&&... args) -> bpt
 // It keeps the leaf chain correct and updates separators on the path.
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-auto BP_tree<tkey, tvalue, compare, t>::erase(bptree_iterator pos) -> bptree_iterator {
+auto BP_tree<tkey, tvalue, compare, t>::erase(bptree_iterator pos) -> bptree_iterator { // TODO realize over const_iterator
     if (pos._node == nullptr || pos._node->_data.empty()) return end();
     return erase(pos._node->_data[pos._index].first);
 }
@@ -931,11 +948,11 @@ auto BP_tree<tkey, tvalue, compare, t>::erase(const tkey& key) -> bptree_iterato
 
 // --- deletion helpers ---
 
-template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
-auto BP_tree<tkey, tvalue, compare, t>::erase_key_from_leaf(bptree_node_term* leaf, std::size_t index) -> bptree_node_term* {
-    leaf->_data.erase(leaf->_data.begin() + static_cast<std::ptrdiff_t>(index));
-    return leaf;
-}
+// template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
+// auto BP_tree<tkey, tvalue, compare, t>::erase_key_from_leaf(bptree_node_term* leaf, std::size_t index) -> bptree_node_term* {
+//     leaf->_data.erase(leaf->_data.begin() + static_cast<std::ptrdiff_t>(index));
+//     return leaf;
+// }
 
 template<typename tkey, typename tvalue, comparator<tkey> compare, std::size_t t>
 void BP_tree<tkey, tvalue, compare, t>::update_separators_from_leaf_up(
@@ -1001,7 +1018,7 @@ void BP_tree<tkey, tvalue, compare, t>::rebalance_after_delete(
         parent->_children.erase(parent->_children.begin() + static_cast<std::ptrdiff_t>(child_index));
         destroy_node(leaf);
         leaf = left;
-        child_index -= 1;
+        --child_index;
     } else {
         auto* right = static_cast<bptree_node_term*>(parent->_children[child_index + 1]);
         for (auto& x : right->_data) leaf->_data.push_back(std::move(x));
@@ -1011,7 +1028,7 @@ void BP_tree<tkey, tvalue, compare, t>::rebalance_after_delete(
         destroy_node(right);
     }
 
-    // parent may underflow
+    // parent may be underflow
     if (parent == _root && parent->_children.size() == 1) {
         _root = parent->_children.front();
         parent->_children.clear();
