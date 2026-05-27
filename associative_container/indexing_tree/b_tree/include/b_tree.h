@@ -467,9 +467,9 @@ private:
 
     void merge_right(btree_node *parent, std::size_t child_index);
 
-    void rotate_left(btree_node *parent, std::size_t child_index);
+    void borrow_from_left(btree_node *parent, std::size_t child_index);
 
-    void rotate_right(btree_node *parent, std::size_t child_index);
+    void borrow_from_right(btree_node *parent, std::size_t child_index);
 
     auto deep_copy_tree(const btree_node *node) const -> btree_node*;
 
@@ -1641,12 +1641,12 @@ std::size_t B_tree<TKey, TValue, Compare, t>::rebalance_on_erasion(
     btree_node *parent, std::size_t child_index) {
     if (child_index + 1 < parent->_children.size() &&
         !is_node_small(parent->_children[child_index + 1])) {
-        rotate_left(parent, child_index);
+        borrow_from_left(parent, child_index);
         return child_index;
     }
     if (child_index > 0 &&
         !is_node_small(parent->_children[child_index - 1])) {
-        rotate_right(parent, child_index);
+        borrow_from_right(parent, child_index);
         return child_index;
     }
     if (child_index > 0) {
@@ -1797,7 +1797,7 @@ void B_tree<TKey, TValue, Compare, t>::merge_right(btree_node *parent,
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
     std::size_t t>
-void B_tree<TKey, TValue, Compare, t>::rotate_left(btree_node *parent,
+void B_tree<TKey, TValue, Compare, t>::borrow_from_left(btree_node *parent,
                                                    std::size_t child_index) {
     btree_node *child = parent->_children[child_index];
     btree_node *right_child = parent->_children[child_index + 1];
@@ -1823,7 +1823,7 @@ void B_tree<TKey, TValue, Compare, t>::rotate_left(btree_node *parent,
 
 template<typename TKey, typename TValue, comparator<TKey> Compare,
     std::size_t t>
-void B_tree<TKey, TValue, Compare, t>::rotate_right(btree_node *parent,
+void B_tree<TKey, TValue, Compare, t>::borrow_from_right(btree_node *parent,
                                                     std::size_t child_index) {
     btree_node *child = parent->_children[child_index];
     btree_node *left_child = parent->_children[child_index - 1];
